@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Create User Profile{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Create User Profile</h4>
+            </div>
+            <div class="card-body">
+                <p class="lead">
+                    Welcome to the Resume & Cover Letter Generator! To get started, please create a user profile
+                    by uploading your resume and providing additional information.
+                </p>
+                
+                <form action="{{ url_for('create_profile') }}" method="post" enctype="multipart/form-data">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="first_name" class="form-label">First Name *</label>
+                            <input type="text" class="form-control" id="first_name" name="first_name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="last_name" class="form-label">Last Name *</label>
+                            <input type="text" class="form-control" id="last_name" name="last_name" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="resume_file" class="form-label">Upload Your Resume (PDF, TXT, DOCX) *</label>
+                        <input type="file" class="form-control" id="resume_file" name="resume_file" accept=".pdf,.txt,.docx" required>
+                        <div class="form-text">Your resume is required to create a profile. We'll extract your skills from it.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="portfolio_text" class="form-label">Portfolio Information (Optional)</label>
+                        <textarea class="form-control" id="portfolio_text" name="portfolio_text" rows="4" placeholder="Paste information about your portfolio, projects, or work samples here..."></textarea>
+                        <div class="form-text">This helps the AI understand your work better and create more tailored documents.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="linkedin_text" class="form-label">LinkedIn Information (Optional)</label>
+                        <textarea class="form-control" id="linkedin_text" name="linkedin_text" rows="4" placeholder="Paste your LinkedIn profile text or additional professional information here..."></textarea>
+                        <div class="form-text">This provides additional context about your professional background.</div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Create Profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,70 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Project-specific
+uploads/*
+!uploads/.gitkeep
+generated/*
+!generated/.gitkeep
+temp/*
+!temp/.gitkeep
+user_profiles/*
+!user_profiles/.gitkeep
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Distribution / packaging
+*.egg-info/
+
+# User data
+resume_storage.json
+
+# Generated company folders
+Company_*/
+*_*/
+
+# IDE files
+.vscode/
+.idea/
+
+# Flask session files
+flask_session/
+
+# Pyppeteer browser data
+.pyppeteer/ 

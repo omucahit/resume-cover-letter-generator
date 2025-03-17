@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Resume & Cover Letter Generator{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Resume & Cover Letter Generator</h4>
+                {% if current_profile %}
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-light text-dark me-2">Profile: {{ current_profile.full_name }}</span>
+                    <a href="{{ url_for('edit_profile', folder_name=current_profile.folder_name) }}" class="btn btn-sm btn-outline-light me-2">Edit Profile</a>
+                    <a href="{{ url_for('clear_profile') }}" class="btn btn-sm btn-outline-light">Change Profile</a>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p class="lead">
+                    This tool helps you generate customized resumes and cover letters for job applications.
+                    {% if current_profile %}
+                    Enter a job description, and the AI will create tailored documents for you based on your profile.
+                    {% else %}
+                    Upload your resume(s) and a job description, and the AI will create tailored documents for you.
+                    {% endif %}
+                </p>
+                {% if current_profile and current_profile.skills %}
+                <div class="mt-3">
+                    <h5>Your Skills</h5>
+                    <div class="d-flex flex-wrap gap-1 mt-2">
+                        {% for skill in current_profile.skills %}
+                        <span class="badge bg-info text-dark">{{ skill }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                <div class="mt-3 text-end">
+                    <a href="{{ url_for('manage_profiles') }}" class="btn btn-sm btn-outline-secondary">Manage Profiles</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not current_profile %}
+<!-- Resume Upload Section (only shown when no profile is selected) -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Upload Resumes</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('upload_resume') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="resume_files" class="form-label">Select Resume Files (PDF, TXT, DOCX)</label>
+                        <input type="file" class="form-control" id="resume_files" name="resume_files" multiple accept=".pdf,.txt,.docx">
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="clear_existing" name="clear_existing" value="yes">
+                        <label class="form-check-label" for="clear_existing">Clear existing resumes</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload Resumes</button>
+                </form>
+                
+                <div class="mt-3">
+                    <p>Currently loaded: <span class="badge bg-info">{{ num_resumes }} resume(s)</span></p>
+                    {% if num_resumes > 0 %}
+                    <form action="{{ url_for('clear_resumes') }}" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-danger">Clear All</button>
+                    </form>
+                    {% endif %}
+                </div>
+                
+                {% if uploaded_files %}
+                <div class="mt-3">
+                    <h6>Uploaded Files:</h6>
+                    <ul class="list-group">
+                        {% for file in uploaded_files %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ file }}
+                            <span class="badge bg-primary rounded-pill">{{ file.split('.')[-1] }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <!-- Job Description Section - Full Width -->
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Job Description</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('generate_documents') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="job_description" class="form-label">Enter Job Description</label>
+                        <textarea class="form-control" id="job_description" name="job_description" rows="10">{{ job_description }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="job_file" class="form-label">Or Upload Job Description File (PDF, TXT)</label>
+                        <input type="file" class="form-control" id="job_file" name="job_file" accept=".pdf,.txt">
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <button type="button" class="btn btn-outline-secondary" id="clear-job-btn">Clear Job Description</button>
+                        <button type="submit" class="btn btn-success" id="generate-btn" {% if num_resumes == 0 and not current_profile %}disabled{% endif %}>
+                            <span class="btn-text">Generate Documents</span>
+                            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results Section -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Generated Documents</h5>
+            </div>
+            <div class="card-body">
+                {% if generated_folders %}
+                <div class="accordion" id="generatedFolders">
+                    {% for folder in generated_folders %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="heading{{ loop.index }}">
+                            <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="collapse{{ loop.index }}">
+                                {{ folder }} - {{ generated_files[folder]['time'] }}
+                            </button>
+                        </h2>
+                        <div id="collapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#generatedFolders">
+                            <div class="accordion-body">
+                                <div class="list-group">
+                                    {% for file in generated_files[folder]['files'] %}
+                                    {% if file.endswith('.html') %}
+                                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                        {{ file }}
+                                        <div>
+                                            <a href="{{ url_for('download_file', folder=folder, filename=file, view='true') }}" class="btn btn-sm btn-outline-primary" target="_blank">
+                                                View
+                                            </a>
+                                            <a href="{{ url_for('download_file', folder=folder, filename=file) }}" class="btn btn-sm btn-primary">
+                                                Download
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    <a href="{{ url_for('download_file', folder=folder, filename=file) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                        {{ file }}
+                                        <span class="badge bg-primary rounded-pill">{{ file.split('.')[-1] }}</span>
+                                    </a>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">No documents generated yet. Upload a resume and job description to get started.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Logs Section -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Logs</h5>
+                <button id="refresh-logs" class="btn btn-sm btn-outline-secondary">Refresh</button>
+            </div>
+            <div class="card-body">
+                <pre id="logs" class="bg-light p-3" style="max-height: 300px; overflow-y: auto;">{{ logs }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Clear job description button
+        document.getElementById('clear-job-btn').addEventListener('click', function() {
+            document.getElementById('job_description').value = '';
+        });
+        
+        // Refresh logs button
+        document.getElementById('refresh-logs').addEventListener('click', function() {
+            fetch('/get_logs')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('logs').textContent = data;
+                });
+        });
+        
+        // Show loading spinner when generating documents
+        const generateForm = document.querySelector('form[action="{{ url_for("generate_documents") }}"]');
+        if (generateForm) {
+            generateForm.addEventListener('submit', function() {
+                const generateBtn = document.getElementById('generate-btn');
+                const spinner = generateBtn.querySelector('.spinner-border');
+                const btnText = generateBtn.querySelector('.btn-text');
+                
+                // Show spinner, hide text
+                spinner.classList.remove('d-none');
+                btnText.textContent = 'Generating...';
+                generateBtn.disabled = true;
+                
+                // Auto-refresh logs during generation
+                const logInterval = setInterval(function() {
+                    fetch('/get_logs')
+                        .then(response => response.text())
+                        .then(data => {
+                            document.getElementById('logs').textContent = data;
+                        });
+                }, 2000);
+                
+                // Clear interval after 5 minutes (safety measure)
+                setTimeout(function() {
+                    clearInterval(logInterval);
+                }, 300000);
+            });
+        }
+    });
+</script>
+{% endblock %} 

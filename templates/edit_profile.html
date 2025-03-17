@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Edit User Profile{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Edit User Profile</h4>
+            </div>
+            <div class="card-body">
+                <p class="lead">
+                    Update your profile information below. Fields marked with * are required.
+                </p>
+                
+                <form action="{{ url_for('edit_profile', folder_name=profile.folder_name) }}" method="post" enctype="multipart/form-data">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="first_name" class="form-label">First Name *</label>
+                            <input type="text" class="form-control" id="first_name" name="first_name" value="{{ profile.first_name }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="last_name" class="form-label">Last Name *</label>
+                            <input type="text" class="form-control" id="last_name" name="last_name" value="{{ profile.last_name }}" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="resume_file" class="form-label">Upload New Resume (PDF, TXT, DOCX)</label>
+                        <input type="file" class="form-control" id="resume_file" name="resume_file" accept=".pdf,.txt,.docx">
+                        <div class="form-text">Leave empty to keep your current resume. Current resume length: {{ profile.resume_text|length }} characters.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="portfolio_text" class="form-label">Portfolio Information</label>
+                        <textarea class="form-control" id="portfolio_text" name="portfolio_text" rows="4" placeholder="Paste information about your portfolio, projects, or work samples here...">{{ profile.portfolio_text }}</textarea>
+                        <div class="form-text">This helps the AI understand your work better and create more tailored documents.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="linkedin_text" class="form-label">LinkedIn Information</label>
+                        <textarea class="form-control" id="linkedin_text" name="linkedin_text" rows="4" placeholder="Paste your LinkedIn profile text or additional professional information here...">{{ profile.linkedin_text }}</textarea>
+                        <div class="form-text">This provides additional context about your professional background.</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h5>Current Skills</h5>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for skill in profile.skills %}
+                                <span class="badge bg-secondary">{{ skill }}</span>
+                            {% else %}
+                                <p class="text-muted">No skills extracted yet.</p>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text">Skills will be re-extracted if you update your resume or other information.</div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Update Profile</button>
+                        <a href="{{ url_for('manage_profiles') }}" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
