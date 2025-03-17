@@ -1,0 +1,32 @@
+# GitHub Setup Instructions
+
+After creating your GitHub repository, run these commands in your terminal:
+
+```bash
+# Replace 'yourusername' with your actual GitHub username
+# Replace 'resume-cover-letter-generator' with your repository name (if different)
+
+git remote add origin https://github.com/yourusername/resume-cover-letter-generator.git
+git branch -M main
+git push -u origin main
+```
+
+You'll be prompted to enter your GitHub username and password. If you have two-factor authentication enabled (recommended), you'll need to use a personal access token instead of your password.
+
+## Creating a Personal Access Token (if needed)
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token" → "Generate new token (classic)"
+3. Give your token a name (e.g., "Resume Generator App")
+4. Select the "repo" scope to allow access to your repositories
+5. Click "Generate token"
+6. Copy the token immediately (you won't be able to see it again)
+7. Use this token as your password when pushing to GitHub
+
+## Final Steps
+
+1. Take a screenshot of your application running
+2. Save it to static/img/screenshot.png
+3. Update the README.md file to uncomment the screenshot line
+
+Your project is now on GitHub and ready for others to use or contribute to! 
