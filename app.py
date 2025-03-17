@@ -16,9 +16,26 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Get logging configuration from environment variables
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+AI_LOG_LEVEL = os.environ.get("AI_LOG_LEVEL", "INFO").upper()
+AI_LOG_FULL_TEXT = os.environ.get("AI_LOG_FULL_TEXT", "true").lower() == "true"
+
+# Convert string log levels to logging constants
+LOG_LEVEL_MAP = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+
+APP_LOG_LEVEL = LOG_LEVEL_MAP.get(LOG_LEVEL, logging.INFO)
+AI_LOG_LEVEL_INT = LOG_LEVEL_MAP.get(AI_LOG_LEVEL, logging.INFO)
+
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=APP_LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("app.log"),
@@ -30,9 +47,23 @@ logger = logging.getLogger(__name__)
 # Create a string buffer for capturing logs to display in the web UI
 log_capture_string = StringIO()
 log_handler = logging.StreamHandler(log_capture_string)
-log_handler.setLevel(logging.INFO)
+log_handler.setLevel(APP_LOG_LEVEL)
 log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(log_handler)
+
+# Create a dedicated logger for AI interactions
+ai_logger = logging.getLogger("ai_interactions")
+ai_logger.setLevel(AI_LOG_LEVEL_INT)
+# Create a separate file handler for AI interactions
+ai_log_handler = logging.FileHandler("ai_interactions.log")
+ai_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+ai_logger.addHandler(ai_log_handler)
+# Add to string buffer for web display
+ai_logger.addHandler(log_handler)
+
+logger.info(f"Application logging level: {LOG_LEVEL}")
+logger.info(f"AI interactions logging level: {AI_LOG_LEVEL}")
+logger.info(f"Full text logging enabled: {AI_LOG_FULL_TEXT}")
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -231,6 +262,13 @@ class ResumeAndCoverLetterGenerator:
             {profile.linkedin_text if profile.linkedin_text else "Not provided"}
             """
             
+            # Log profile data based on settings
+            if AI_LOG_FULL_TEXT:
+                ai_logger.info(f"EXTRACTING SKILLS - Profile data: {combined_text}")
+            else:
+                combined_text_short = combined_text[:300] + "..." if len(combined_text) > 300 else combined_text
+                ai_logger.info(f"EXTRACTING SKILLS - Profile data (truncated): {combined_text_short}")
+            
             prompt = f"""
             Extract a comprehensive list of professional skills from the following user data.
             Include technical skills, soft skills, tools, technologies, and domain knowledge.
@@ -253,24 +291,43 @@ class ResumeAndCoverLetterGenerator:
             
             # Parse JSON from text response
             response_text = response.choices[0].message.content.strip()
+            
+            # Log response based on settings
+            if AI_LOG_FULL_TEXT:
+                ai_logger.info(f"SKILLS RESPONSE - Full: {response_text}")
+            else:
+                response_text_short = response_text[:300] + "..." if len(response_text) > 300 else response_text
+                ai_logger.info(f"SKILLS RESPONSE - Truncated: {response_text_short}")
+            
             try:
                 result = json.loads(response_text)
                 skills = result.get("skills", [])
                 logger.info(f"Extracted {len(skills)} skills from user profile")
+                # Skills list is typically small, so we always log the full list
+                ai_logger.info(f"SKILLS EXTRACTED - Count: {len(skills)} - All skills: {skills}")
                 return skills
             except json.JSONDecodeError:
                 # Fallback: try to extract skills using regex if JSON parsing fails
                 logger.warning("Failed to parse JSON response, attempting to extract skills with regex")
+                
+                if AI_LOG_FULL_TEXT:
+                    ai_logger.warning(f"SKILLS EXTRACTION FAILED - Invalid JSON response: {response_text}")
+                else:
+                    response_text_short = response_text[:300] + "..." if len(response_text) > 300 else response_text
+                    ai_logger.warning(f"SKILLS EXTRACTION FAILED - Invalid JSON response (truncated): {response_text_short}")
+                
                 import re
                 # Look for anything that might be a skill (words or phrases in quotes)
                 skills_match = re.findall(r'"([^"]+)"', response_text)
                 if skills_match:
                     logger.info(f"Extracted {len(skills_match)} skills using regex")
+                    ai_logger.info(f"SKILLS EXTRACTED (regex) - Count: {len(skills_match)} - All skills: {skills_match}")
                     return skills_match
                 return []
             
         except Exception as e:
             logger.error(f"Error extracting skills: {e}")
+            ai_logger.error(f"SKILLS EXTRACTION ERROR: {e}")
             return []
     
     def add_resume(self, resume_text):
@@ -308,7 +365,13 @@ class ResumeAndCoverLetterGenerator:
             return "Unknown_Company"
             
         try:
-            # Try to extract company name using AI
+            # Log job description based on settings
+            if AI_LOG_FULL_TEXT:
+                ai_logger.info(f"EXTRACTING COMPANY NAME - Job description: {job_description}")
+            else:
+                job_desc_short = job_description[:300] + "..." if len(job_description) > 300 else job_description
+                ai_logger.info(f"EXTRACTING COMPANY NAME - Job description (truncated): {job_desc_short}")
+            
             prompt = f"""
             Extract the company name from the following job description. 
             Return ONLY the company name, nothing else.
@@ -322,6 +385,8 @@ class ResumeAndCoverLetterGenerator:
             
             company_name = self.generate_ai_content(prompt, system_message, max_tokens=50).strip()
             
+            ai_logger.info(f"COMPANY NAME EXTRACTED: {company_name}")
+            
             # Clean up the company name for use in filenames
             company_name = re.sub(r'[^\w\s-]', '', company_name)  # Remove special chars
             company_name = re.sub(r'\s+', '_', company_name)      # Replace spaces with underscores
@@ -334,6 +399,7 @@ class ResumeAndCoverLetterGenerator:
             
         except Exception as e:
             logger.error(f"Error extracting company name: {e}")
+            ai_logger.error(f"COMPANY NAME EXTRACTION ERROR: {e}")
             return "Unknown_Company"
     
     def extract_style_attributes(self, pdf_path=None):
@@ -400,6 +466,15 @@ class ResumeAndCoverLetterGenerator:
     def generate_ai_content(self, prompt, system_message="You are a helpful assistant.", max_tokens=4000):
         """Generate content using OpenAI API"""
         try:
+            # Log the prompt with truncation based on settings
+            ai_logger.info(f"SENDING TO AI - System: {system_message}")
+            
+            if AI_LOG_FULL_TEXT:
+                ai_logger.info(f"SENDING TO AI - Prompt: {prompt}")
+            else:
+                prompt_for_log = prompt[:500] + "..." if len(prompt) > 500 else prompt
+                ai_logger.info(f"SENDING TO AI - Prompt (truncated): {prompt_for_log}")
+            
             client = openai.OpenAI(api_key=self.api_key)
             response = client.chat.completions.create(
                 model=self.model,
@@ -413,140 +488,330 @@ class ResumeAndCoverLetterGenerator:
             
             content = response.choices[0].message.content
             
+            # Log the response with truncation based on settings
+            if AI_LOG_FULL_TEXT:
+                ai_logger.info(f"RECEIVED FROM AI: {content}")
+            else:
+                response_for_log = content[:500] + "..." if len(content) > 500 else content
+                ai_logger.info(f"RECEIVED FROM AI (truncated): {response_for_log}")
+            
             # Remove any markdown code block formatting that might be present
             content = re.sub(r'```html\s*', '', content)
             content = re.sub(r'```\s*$', '', content)
             
             return content
         except Exception as e:
-            logger.error(f"Error generating content: {e}")
+            error_msg = f"Error generating content: {e}"
+            ai_logger.error(error_msg)
+            logger.error(error_msg)
             return f"Error generating content: {str(e)}"
     
-    def generate_resume(self, resume_index=0):
-        """Generate a tailored resume based on the job description"""
-        if not self.job_description or not self.resume_texts:
-            return "Error: Job description and resume are required."
+    def generate_resume_content(self):
+        """Generate a tailored resume based on user profile and job description"""
+        logger.info("Generating tailored resume content")
         
-        resume_text = self.resume_texts[resume_index]
-        today_date = datetime.now().strftime("%B %d, %Y")
+        job_description = self.job_description[:3500]  # Limit job description length
         
-        # Get user profile if available
-        user_profile = None
-        if hasattr(self, 'current_profile') and self.current_profile:
-            user_profile = self.current_profile
-            
-        # Include skills from user profile if available
-        skills_text = ""
-        if user_profile and user_profile.skills:
-            skills_text = "Skills to emphasize (if relevant to the job):\n" + "\n".join([f"- {skill}" for skill in user_profile.skills])
+        system_message = """
+        You are an expert resume writer specializing in creating tailored ATS-friendly resumes.
+        Focus on reorganizing and rephrasing the candidate's original resume to match the job requirements.
+        Highlight relevant skills and experiences, use industry keywords from the job description, 
+        and quantify achievements where possible. Keep the content professional and concise.
         
-        prompt = f"""
-        Create a tailored resume based on the following original resume and job description.
-        Today's date is {today_date}.
-        
-        ORIGINAL RESUME:
-        {resume_text}
-        
-        JOB DESCRIPTION:
-        {self.job_description}
-        
-        {skills_text}
-        
-        INSTRUCTIONS:
-        1. Create a complete, tailored resume that highlights relevant skills and experiences for this job description.
-        2. The resume should be professional, clean, and well-organized.
-        3. Maintain the original resume's core information but emphasize relevant skills and experiences.
-        4. The resume should fit on 1-2 pages maximum.
-        5. Include the following sections: Contact Information, Summary/Objective, Experience, Education, Skills, and any other relevant sections from the original resume.
-        6. Format the output as complete, valid HTML with embedded CSS styling.
-        7. Use a clean, professional design with appropriate spacing and formatting.
-        
-        The HTML should include the following CSS styling:
-        - Font: Arial, Helvetica, or sans-serif
-        - Base font size: 12px
-        - Line height: 1.5
-        - Color scheme: Professional (dark text on white background with subtle accent colors)
-        - Margins: 1 inch (or equivalent in pixels)
-        - Clear section headings
-        - Print-friendly layout
-        
-        For print media, ensure:
-        - No background colors that would waste ink
-        - Proper page breaks
-        - Appropriate margins for printing
-        
-        Return ONLY the complete HTML code with no markdown formatting or explanatory text.
+        Return a complete HTML document with embedded CSS styling that creates a clean, professional resume.
+        Ensure the HTML includes proper styling for printing.
         """
         
-        system_message = "You are a professional resume writer. Always respond with complete, valid HTML only. Do not include markdown formatting, code blocks, or any explanatory text before or after the HTML. Your entire response should be valid HTML that can be directly rendered in a browser."
+        # Use extracted skills if available
+        skills_text = ", ".join(self.extract_skills(self.current_user_profile)) if self.extract_skills(self.current_user_profile) else "Not available"
         
-        return self.generate_ai_content(prompt, system_message)
+        # Truncate profile data for prompt (to avoid token limits)
+        resume_text = self.current_user_profile.resume_text[:2000] if self.current_user_profile.resume_text else "Not provided"
+        portfolio_text = self.current_user_profile.portfolio_text[:500] if self.current_user_profile.portfolio_text else "Not provided"
+        linkedin_text = self.current_user_profile.linkedin_text[:500] if self.current_user_profile.linkedin_text else "Not provided"
+        
+        prompt = f"""
+        Generate tailored resume content for the following job description, based on the candidate's profile.
+        
+        JOB DESCRIPTION:
+        {job_description}
+        
+        CANDIDATE PROFILE:
+        Resume: {resume_text}
+        Portfolio: {portfolio_text}
+        LinkedIn: {linkedin_text}
+        
+        Extracted Skills: {skills_text}
+        
+        Create a targeted resume that reorganizes and enhances the original resume content to match the job requirements.
+        The resume should include:
+        
+        1. A brief professional summary emphasizing relevant experience
+        2. Skills section with relevant technical and soft skills
+        3. Work experience section (keep the original companies and dates, but tailor descriptions)
+        4. Education section
+        5. Any other relevant sections from the original resume
+        
+        Format the resume as a complete HTML document with embedded CSS for a professional appearance.
+        
+        CSS styling should include:
+        - Clean, professional font (Arial, Helvetica, or similar sans-serif)
+        - Appropriate section headings (using h2 or h3 tags)
+        - Good spacing and margins
+        - Consistent formatting
+        - Print-friendly design (no background colors that waste ink)
+        - Maximum width of 800px with centered content
+
+        The HTML should be complete with <!DOCTYPE html>, <html>, <head>, and <body> tags.
+        Include media queries for print to ensure the resume prints correctly.
+        
+        Keep education and work history in reverse chronological order as in the original resume.
+        Do not fabricate experience or qualifications not mentioned in the original resume.
+        """
+        
+        # Log input data
+        if AI_LOG_FULL_TEXT:
+            ai_logger.info(f"RESUME GENERATION - Job Description: {job_description}")
+            ai_logger.info(f"RESUME GENERATION - Resume: {resume_text}")
+            ai_logger.info(f"RESUME GENERATION - Portfolio: {portfolio_text}")
+            ai_logger.info(f"RESUME GENERATION - LinkedIn: {linkedin_text}")
+            ai_logger.info(f"RESUME GENERATION - Skills: {skills_text}")
+        else:
+            ai_logger.info(f"RESUME GENERATION - Job Description (truncated): {job_description[:300]}...")
+            ai_logger.info(f"RESUME GENERATION - Resume (truncated): {resume_text[:300]}...")
+            ai_logger.info(f"RESUME GENERATION - Portfolio (truncated): {portfolio_text[:300]}...")
+            ai_logger.info(f"RESUME GENERATION - LinkedIn (truncated): {linkedin_text[:300]}...")
+            ai_logger.info(f"RESUME GENERATION - Skills: {skills_text[:300]}...")
+        
+        try:
+            resume_content = self.generate_ai_content(prompt, system_message, max_tokens=1500)
+            # If the response doesn't include HTML, wrap it in basic HTML
+            if "<html" not in resume_content.lower() and "<body" not in resume_content.lower():
+                resume_content = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Tailored Resume</title>
+                    <style>
+                        body {{ 
+                            font-family: Arial, Helvetica, sans-serif; 
+                            line-height: 1.6; 
+                            margin: 1em auto; 
+                            max-width: 800px;
+                            padding: 20px;
+                        }}
+                        h1, h2, h3 {{ 
+                            color: #2c3e50; 
+                            margin-top: 20px;
+                        }}
+                        h1 {{ 
+                            text-align: center; 
+                            font-size: 24px; 
+                            margin-bottom: 10px; 
+                        }}
+                        h2 {{ 
+                            font-size: 18px;
+                            border-bottom: 1px solid #eee; 
+                            padding-bottom: 5px; 
+                            margin-top: 20px;
+                        }}
+                        h3 {{ font-size: 16px; }}
+                        p {{ margin: 8px 0; }}
+                        ul {{ margin: 8px 0; padding-left: 25px; }}
+                        .section {{ margin-bottom: 20px; }}
+                        .job-title {{ 
+                            font-weight: bold; 
+                            margin-bottom: 5px; 
+                        }}
+                        .job-company {{ 
+                            font-weight: bold; 
+                            margin-bottom: 5px; 
+                        }}
+                        .job-dates {{ 
+                            font-style: italic; 
+                            color: #666; 
+                            margin-bottom: 5px; 
+                        }}
+                        @media print {{
+                            body {{ 
+                                margin: 0; 
+                                padding: 0.5in; 
+                                font-size: 12pt; 
+                            }}
+                            a {{ text-decoration: none; color: #000; }}
+                        }}
+                    </style>
+                </head>
+                <body>
+                {resume_content}
+                </body>
+                </html>
+                """
+            logger.info("Resume content generated successfully")
+            return resume_content
+        except Exception as e:
+            logger.error(f"Error generating resume content: {e}")
+            ai_logger.error(f"RESUME GENERATION ERROR: {e}")
+            return "Error generating resume. Please try again."
     
-    def generate_cover_letter(self, resume_index=0):
-        """Generate a cover letter based on the resume and job description"""
-        if not self.job_description or not self.resume_texts:
-            return "Error: Job description and resume are required."
+    def generate_cover_letter(self):
+        """Generate a cover letter based on user profile and job description"""
+        logger.info("Generating cover letter")
         
-        resume_text = self.resume_texts[resume_index]
-        today_date = datetime.now().strftime("%B %d, %Y")
+        job_description = self.job_description[:3500]  # Limit job description length
         
-        # Get user profile if available
-        user_profile = None
-        if hasattr(self, 'current_profile') and self.current_profile:
-            user_profile = self.current_profile
-            
-        # Include name from user profile if available
-        name_text = ""
-        if user_profile:
-            name_text = f"Applicant Name: {user_profile.first_name} {user_profile.last_name}"
-            
-        # Include skills from user profile if available
-        skills_text = ""
-        if user_profile and user_profile.skills:
-            skills_text = "Skills to emphasize (if relevant to the job):\n" + "\n".join([f"- {skill}" for skill in user_profile.skills])
+        system_message = """
+        You are an expert career coach specializing in creating personalized cover letters.
+        Focus on matching the candidate's experience with the job requirements.
+        Be professional, engaging, and highlight relevant skills and experiences.
+        The cover letter should be well-structured with an introduction, body paragraphs, and conclusion.
+        Keep the tone professional but personable.
         
-        prompt = f"""
-        Create a professional cover letter based on the following resume and job description.
-        Today's date is {today_date}.
-        
-        {name_text}
-        
-        RESUME:
-        {resume_text}
-        
-        JOB DESCRIPTION:
-        {self.job_description}
-        
-        {skills_text}
-        
-        INSTRUCTIONS:
-        1. The cover letter must fit on a single page.
-        2. Use a clean, professional layout.
-        3. Include today's date ({today_date}) at the top.
-        4. Follow proper business letter format including date, recipient, salutation, body, and closing.
-        5. The content should be concise (3-4 paragraphs) and highlight the most relevant skills and experiences.
-        6. Output complete HTML with CSS styling for a professional appearance.
-        7. The letter should be personalized to the company and position.
-        
-        The HTML should include the following CSS styling:
-        - Font: Arial, Helvetica, or sans-serif
-        - Base font size: 12px
-        - Line height: 1.5
-        - Color: Black text on white background
-        - Margins: 1 inch (or equivalent in pixels)
-        - Classes for different sections (header, date, recipient, salutation, paragraphs, closing, signature)
-        
-        For print media, ensure:
-        - No background colors
-        - Proper page breaks
-        - Appropriate margins for printing
-        
-        Return ONLY the complete HTML code with no markdown formatting or explanatory text.
+        Return a complete HTML document with embedded CSS styling that creates a clean, professional cover letter.
+        Ensure the HTML includes proper styling for printing.
         """
         
-        system_message = "You are a professional cover letter writer. Always respond with complete, valid HTML only. Do not include markdown formatting, code blocks, or any explanatory text before or after the HTML. Your entire response should be valid HTML that can be directly rendered in a browser."
+        # Truncate profile data for prompt (to avoid token limits)
+        resume_text = self.current_user_profile.resume_text[:1500] if self.current_user_profile.resume_text else "Not provided"
+        portfolio_text = self.current_user_profile.portfolio_text[:500] if self.current_user_profile.portfolio_text else "Not provided"
+        linkedin_text = self.current_user_profile.linkedin_text[:500] if self.current_user_profile.linkedin_text else "Not provided"
         
-        return self.generate_ai_content(prompt, system_message)
+        prompt = f"""
+        Generate a professional cover letter for the following job description, based on the candidate's profile.
+        
+        JOB DESCRIPTION:
+        {job_description}
+        
+        CANDIDATE PROFILE:
+        Name: {self.current_user_profile.full_name}
+        Email: {self.current_user_profile.email if hasattr(self.current_user_profile, 'email') else 'example@email.com'}
+        Phone: {self.current_user_profile.phone if hasattr(self.current_user_profile, 'phone') else '(123) 456-7890'}
+        Address: {self.current_user_profile.address if hasattr(self.current_user_profile, 'address') else '123 Main St, City, State 12345'}
+        Resume: {resume_text}
+        Portfolio: {portfolio_text}
+        LinkedIn: {linkedin_text}
+        
+        Generate a complete cover letter that is ready to be sent. Focus on matching specific experiences and skills 
+        from the candidate's profile to the job requirements. Be specific and provide concrete examples from the
+        candidate's background that demonstrate their suitability for the role.
+        
+        The cover letter should be properly formatted with:
+        1. The candidate's contact information at the top (name, address, phone, email)
+        2. Today's date ({datetime.now().strftime("%B %d, %Y")})
+        3. Recipient's company name and "Hiring Manager" as placeholder
+        4. Appropriate greeting
+        5. 3-4 paragraphs of content
+        6. Professional closing
+        7. Candidate's name
+        
+        Format the letter as a complete HTML document with embedded CSS for a professional appearance.
+        
+        CSS styling should include:
+        - Clean, professional font (Arial, Helvetica, or similar sans-serif)
+        - Appropriate spacing and margins
+        - Consistent formatting for date, greeting, body, and signature
+        - Print-friendly design (no background colors that waste ink)
+        - Maximum width of 800px with centered content
+
+        The HTML should be complete with <!DOCTYPE html>, <html>, <head>, and <body> tags.
+        Include media queries for print to ensure the letter prints correctly.
+        """
+        
+        # Log input data
+        if AI_LOG_FULL_TEXT:
+            ai_logger.info(f"COVER LETTER GENERATION - Job Description: {job_description}")
+            ai_logger.info(f"COVER LETTER GENERATION - Resume: {resume_text}")
+            ai_logger.info(f"COVER LETTER GENERATION - Portfolio: {portfolio_text}")
+            ai_logger.info(f"COVER LETTER GENERATION - LinkedIn: {linkedin_text}")
+        else:
+            ai_logger.info(f"COVER LETTER GENERATION - Job Description (truncated): {job_description[:300]}...")
+            ai_logger.info(f"COVER LETTER GENERATION - Resume (truncated): {resume_text[:300]}...")
+            ai_logger.info(f"COVER LETTER GENERATION - Portfolio (truncated): {portfolio_text[:300]}...")
+            ai_logger.info(f"COVER LETTER GENERATION - LinkedIn (truncated): {linkedin_text[:300]}...")
+        
+        try:
+            cover_letter = self.generate_ai_content(prompt, system_message, max_tokens=1000)
+            # If the response doesn't include HTML, wrap it in basic HTML
+            if "<html" not in cover_letter.lower() and "<body" not in cover_letter.lower():
+                cover_letter = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Cover Letter</title>
+                    <style>
+                        body {{ 
+                            font-family: Arial, Helvetica, sans-serif; 
+                            line-height: 1.6; 
+                            margin: 1em auto; 
+                            max-width: 800px;
+                            padding: 20px;
+                        }}
+                        .header {{
+                            margin-bottom: 30px;
+                        }}
+                        .contact-info {{
+                            margin-bottom: 20px;
+                        }}
+                        .date {{ 
+                            margin-bottom: 20px; 
+                        }}
+                        .recipient {{
+                            margin-bottom: 20px;
+                        }}
+                        .greeting {{ 
+                            margin-bottom: 20px; 
+                        }}
+                        .body {{ 
+                            margin-bottom: 20px; 
+                        }}
+                        .body p {{ 
+                            margin-bottom: 15px; 
+                        }}
+                        .closing {{ 
+                            margin-bottom: 10px; 
+                        }}
+                        .signature {{ 
+                            margin-top: 30px; 
+                            font-weight: bold; 
+                        }}
+                        @media print {{
+                            body {{ 
+                                margin: 0; 
+                                padding: 0.5in; 
+                                font-size: 12pt; 
+                            }}
+                        }}
+                    </style>
+                </head>
+                <body>
+                <div class="header">
+                    <div class="contact-info">
+                        {self.current_user_profile.full_name}<br>
+                        {self.current_user_profile.address if hasattr(self.current_user_profile, 'address') else '123 Main St'}<br>
+                        {self.current_user_profile.email if hasattr(self.current_user_profile, 'email') else 'example@email.com'}<br>
+                        {self.current_user_profile.phone if hasattr(self.current_user_profile, 'phone') else '(123) 456-7890'}
+                    </div>
+                    <div class="date">{datetime.now().strftime("%B %d, %Y")}</div>
+                    <div class="recipient">
+                        {self.company_name}<br>
+                        Hiring Manager
+                    </div>
+                </div>
+                <div class="greeting">Dear Hiring Manager,</div>
+                <div class="body">
+                {cover_letter}
+                </div>
+                <div class="closing">Sincerely,</div>
+                <div class="signature">{self.current_user_profile.full_name}</div>
+                </body>
+                </html>
+                """
+            logger.info("Cover letter generated successfully")
+            return cover_letter
+        except Exception as e:
+            logger.error(f"Error generating cover letter: {e}")
+            ai_logger.error(f"COVER LETTER GENERATION ERROR: {e}")
+            return "Error generating cover letter. Please try again."
     
     def create_application_folder(self):
         """Create a folder for the job application"""
@@ -576,11 +841,16 @@ class ResumeAndCoverLetterGenerator:
         
         try:
             # Extract company name from job description
+            logger.info("Extracting company name from job description")
             company_name = self.extract_company_name()
             self.company_name = company_name
             
             # Create application folder
             folder_path = self.create_application_folder()
+            logger.info(f"Created application folder: {folder_path}")
+            
+            # Analyze job requirements
+            logger.info("Analyzing job requirements")
             
             results = []
             
@@ -624,8 +894,11 @@ class ResumeAndCoverLetterGenerator:
             
             # Process each resume
             for i, resume_text in enumerate(self.resume_texts):
+                logger.info("Extracting skills from user profile data")
+                
                 # Generate tailored resume
-                resume_html = self.generate_resume(i)
+                logger.info("Generating tailored resume content")
+                resume_html = self.generate_resume_content()
                 
                 # Add print button to resume HTML
                 if "<body>" in resume_html:
@@ -648,7 +921,8 @@ class ResumeAndCoverLetterGenerator:
                     f.write(resume_html)
                 
                 # Generate cover letter
-                cover_letter_html = self.generate_cover_letter(i)
+                logger.info("Generating cover letter")
+                cover_letter_html = self.generate_cover_letter()
                 
                 # Add print button to cover letter HTML
                 if "<body>" in cover_letter_html:
@@ -693,6 +967,7 @@ class ResumeAndCoverLetterGenerator:
                         "cover_letter_html": cover_letter_html_filename
                     })
             
+            logger.info("Document generation complete!")
             return {
                 "success": True,
                 "folder": folder_path,
@@ -1109,6 +1384,49 @@ def download_file(folder, filename):
             return send_file(file_path, as_attachment=True)
     else:
         flash('File not found', 'error')
+        return redirect(url_for('index'))
+
+@app.route('/ai_logs')
+def ai_logs():
+    """View AI interaction logs"""
+    try:
+        # First try with utf-8 encoding and error handling
+        try:
+            with open('ai_interactions.log', 'r', encoding='utf-8', errors='replace') as f:
+                logs = f.readlines()
+            logger.info("AI logs loaded using utf-8 encoding with error replacement")
+        except Exception as e:
+            # If that fails, try with latin-1 encoding which can handle all byte values
+            logger.warning(f"Error loading AI logs with utf-8: {str(e)}")
+            with open('ai_interactions.log', 'r', encoding='latin-1') as f:
+                logs = f.readlines()
+            logger.info("AI logs loaded using latin-1 encoding")
+        
+        # Format logs for display
+        formatted_logs = []
+        for log in logs:
+            # Clean the log entry to ensure it's valid HTML
+            log = log.replace('<', '&lt;').replace('>', '&gt;')
+            
+            # Apply appropriate CSS classes based on log content
+            if "ERROR" in log or "FAILED" in log:
+                formatted_logs.append(f"<div class='error-message'>{log}</div>")
+            elif "WARNING" in log:
+                formatted_logs.append(f"<div class='warning-message'>{log}</div>")
+            elif "SENDING TO AI" in log or "EXTRACTING" in log:
+                formatted_logs.append(f"<div class='outgoing-message'>{log}</div>")
+            elif "RECEIVED FROM AI" in log or "RESPONSE" in log or "EXTRACTED" in log:
+                formatted_logs.append(f"<div class='incoming-message'>{log}</div>")
+            elif "<html" in log.lower() or "</html>" in log.lower():
+                formatted_logs.append(f"<div class='html-content'>{log}</div>")
+            else:
+                formatted_logs.append(f"<div>{log}</div>")
+        
+        return render_template('ai_logs.html', logs=formatted_logs)
+    except Exception as e:
+        error_msg = f"Error loading AI logs: {str(e)}"
+        logger.error(error_msg)
+        flash(error_msg, 'error')
         return redirect(url_for('index'))
 
 if __name__ == '__main__':

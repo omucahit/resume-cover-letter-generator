@@ -3,40 +3,44 @@
 {% block title %}Resume & Cover Letter Generator{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-12">
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <h4 class="mb-0">Resume & Cover Letter Generator</h4>
-                {% if current_profile %}
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-light text-dark me-2">Profile: {{ current_profile.full_name }}</span>
-                    <a href="{{ url_for('edit_profile', folder_name=current_profile.folder_name) }}" class="btn btn-sm btn-outline-light me-2">Edit Profile</a>
-                    <a href="{{ url_for('clear_profile') }}" class="btn btn-sm btn-outline-light">Change Profile</a>
+<div class="container mt-4">
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <div class="row">
+        <!-- Job Description Section - Full Width -->
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Job Description</h5>
                 </div>
-                {% endif %}
-            </div>
-            <div class="card-body">
-                <p class="lead">
-                    This tool helps you generate customized resumes and cover letters for job applications.
-                    {% if current_profile %}
-                    Enter a job description, and the AI will create tailored documents for you based on your profile.
-                    {% else %}
-                    Upload your resume(s) and a job description, and the AI will create tailored documents for you.
-                    {% endif %}
-                </p>
-                {% if current_profile and current_profile.skills %}
-                <div class="mt-3">
-                    <h5>Your Skills</h5>
-                    <div class="d-flex flex-wrap gap-1 mt-2">
-                        {% for skill in current_profile.skills %}
-                        <span class="badge bg-info text-dark">{{ skill }}</span>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
-                <div class="mt-3 text-end">
-                    <a href="{{ url_for('manage_profiles') }}" class="btn btn-sm btn-outline-secondary">Manage Profiles</a>
+                <div class="card-body">
+                    <form id="generate-form" action="{{ url_for('generate_documents') }}" method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="job_description" class="form-label">Enter Job Description</label>
+                            <textarea class="form-control" id="job_description" name="job_description" rows="10" required>{{ job_description }}</textarea>
+                        </div>
+                        
+                        <!-- Progress Display - Positioned above the button -->
+                        <div id="generation-progress" class="my-4" style="display: none;">
+                            <h5 class="text-center mb-2">Document Generation Progress</h5>
+                            <div class="progress" style="height: 25px;">
+                                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                     role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" 
+                                     style="width: 0%">0%</div>
+                            </div>
+                            <p id="progress-status" class="text-center mt-2 font-weight-bold">Waiting to start...</p>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <button type="button" class="btn btn-outline-secondary" id="clear-job-btn">Clear Job Description</button>
+                            <button id="generate-btn" type="submit" class="btn btn-success" {% if num_resumes == 0 and not current_profile %}disabled{% endif %}>
+                                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                <span class="btn-text">Generate Documents</span>
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -91,36 +95,6 @@
     </div>
 </div>
 {% endif %}
-
-<div class="row">
-    <!-- Job Description Section - Full Width -->
-    <div class="col-md-12">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Job Description</h5>
-            </div>
-            <div class="card-body">
-                <form action="{{ url_for('generate_documents') }}" method="post" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="job_description" class="form-label">Enter Job Description</label>
-                        <textarea class="form-control" id="job_description" name="job_description" rows="10">{{ job_description }}</textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label for="job_file" class="form-label">Or Upload Job Description File (PDF, TXT)</label>
-                        <input type="file" class="form-control" id="job_file" name="job_file" accept=".pdf,.txt">
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <button type="button" class="btn btn-outline-secondary" id="clear-job-btn">Clear Job Description</button>
-                        <button type="submit" class="btn btn-success" id="generate-btn" {% if num_resumes == 0 and not current_profile %}disabled{% endif %}>
-                            <span class="btn-text">Generate Documents</span>
-                            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Results Section -->
 <div class="row">
@@ -182,7 +156,10 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Logs</h5>
-                <button id="refresh-logs" class="btn btn-sm btn-outline-secondary">Refresh</button>
+                <div>
+                    <a href="{{ url_for('ai_logs') }}" class="btn btn-sm btn-info me-2">View AI Logs</a>
+                    <button id="refresh-logs" class="btn btn-sm btn-outline-secondary">Refresh</button>
+                </div>
             </div>
             <div class="card-body">
                 <pre id="logs" class="bg-light p-3" style="max-height: 300px; overflow-y: auto;">{{ logs }}</pre>
@@ -207,32 +184,118 @@
                 });
         });
         
-        // Show loading spinner when generating documents
-        const generateForm = document.querySelector('form[action="{{ url_for("generate_documents") }}"]');
+        // Progress tracking for document generation
+        const progressSteps = [
+            {percent: 10, message: "Extracting company name..."},
+            {percent: 20, message: "Creating application folder..."},
+            {percent: 30, message: "Analyzing job requirements..."},
+            {percent: 40, message: "Extracting skills..."},
+            {percent: 50, message: "Generating resume content..."},
+            {percent: 70, message: "Generating cover letter..."},
+            {percent: 90, message: "Formatting documents..."},
+            {percent: 100, message: "Generation complete!"}
+        ];
+
+        let currentStepIndex = 0;
+        let progressInterval;
+
+        function startProgress() {
+            console.log("Starting progress tracking");
+            
+            // Reset progress
+            currentStepIndex = 0;
+            
+            // Setup log refresh
+            const logInterval = setInterval(function() {
+                fetch('/get_logs')
+                    .then(response => response.text())
+                    .then(data => {
+                        const logsElement = document.getElementById('logs');
+                        if (logsElement) {
+                            logsElement.textContent = data;
+                            
+                            // Check for log content to determine when to advance progress
+                            if (data.includes('Extracting company name') && currentStepIndex == 0) {
+                                updateProgressStep(0);
+                            } else if (data.includes('Created application folder') && currentStepIndex == 1) {
+                                updateProgressStep(1);
+                            } else if (data.includes('Analyzing job requirements') && currentStepIndex == 2) {
+                                updateProgressStep(2);
+                            } else if (data.includes('Extracting skills from user profile data') && currentStepIndex == 3) {
+                                updateProgressStep(3);
+                            } else if (data.includes('Generating tailored resume content') && currentStepIndex == 4) {
+                                updateProgressStep(4);
+                            } else if (data.includes('Generating cover letter') && currentStepIndex == 5) {
+                                updateProgressStep(5);
+                            } else if (data.includes('Resume content generated successfully') && currentStepIndex == 6) {
+                                updateProgressStep(6);
+                            } else if (data.includes('Cover letter generated successfully') && currentStepIndex == 7) {
+                                updateProgressStep(7);
+                            }
+                        }
+                    });
+            }, 1000); // Check logs more frequently - every 1 second
+            
+            // Clear interval after 10 minutes (longer safety measure)
+            setTimeout(function() {
+                clearInterval(logInterval);
+            }, 600000);
+        }
+        
+        function updateProgressStep(index) {
+            if (index >= 0 && index < progressSteps.length) {
+                const step = progressSteps[index];
+                const progressBar = document.getElementById('progress-bar');
+                const progressStatus = document.getElementById('progress-status');
+                
+                if (progressBar && progressStatus) {
+                    progressBar.style.width = step.percent + '%';
+                    progressBar.setAttribute('aria-valuenow', step.percent);
+                    progressBar.textContent = step.percent + '%';
+                    progressStatus.textContent = step.message;
+                }
+                
+                currentStepIndex = index + 1;
+            }
+        }
+        
+        // Fix generate button functionality
+        const generateForm = document.getElementById('generate-form');
         if (generateForm) {
-            generateForm.addEventListener('submit', function() {
+            generateForm.addEventListener('submit', function(e) {
+                // Don't prevent default - let form submit normally
+                
                 const generateBtn = document.getElementById('generate-btn');
                 const spinner = generateBtn.querySelector('.spinner-border');
                 const btnText = generateBtn.querySelector('.btn-text');
+                const progressContainer = document.getElementById('generation-progress');
                 
-                // Show spinner, hide text
-                spinner.classList.remove('d-none');
-                btnText.textContent = 'Generating...';
-                generateBtn.disabled = true;
-                
-                // Auto-refresh logs during generation
-                const logInterval = setInterval(function() {
-                    fetch('/get_logs')
-                        .then(response => response.text())
-                        .then(data => {
-                            document.getElementById('logs').textContent = data;
-                        });
-                }, 2000);
-                
-                // Clear interval after 5 minutes (safety measure)
-                setTimeout(function() {
-                    clearInterval(logInterval);
-                }, 300000);
+                // Only proceed if elements exist
+                if (generateBtn && spinner && btnText && progressContainer) {
+                    console.log("Starting document generation process");
+                    
+                    // Update button state
+                    generateBtn.disabled = true;
+                    spinner.classList.remove('d-none');
+                    btnText.textContent = 'Generating...';
+                    
+                    // Show progress container - make sure to use the correct display property
+                    progressContainer.style.display = 'block';
+                    
+                    // Reset progress bar
+                    const progressBar = document.getElementById('progress-bar');
+                    const progressStatus = document.getElementById('progress-status');
+                    
+                    if (progressBar && progressStatus) {
+                        progressBar.style.width = '0%';
+                        progressBar.setAttribute('aria-valuenow', 0);
+                        progressBar.textContent = '0%';
+                        progressStatus.textContent = 'Initializing...';
+                    }
+                    
+                    // Start progress tracking
+                    startProgress();
+                }
             });
         }
     });
