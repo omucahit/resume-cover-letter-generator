@@ -42,6 +42,12 @@ user_profiles/*
 logs/
 *.log
 
+# Personal data files
+*[Rr]esume*.pdf
+*[Cc][Vv]*.pdf
+*[Pp]ortfolio*.pdf
+*[Ll]inkedin*.pdf
+
 # IDE
 .idea/
 .vscode/
